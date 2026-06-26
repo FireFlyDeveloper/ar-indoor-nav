@@ -2,6 +2,12 @@ import * as THREE from 'three';
 import { buildNavGraph, graphToLine, type Node } from './navGraph';
 import { makeArrow, makeStartMarker, makeEndMarker } from './arrows';
 
+/**
+ * The assembled navigation scene: a root group containing the start/end
+ * markers, intermediate arrow meshes, the line representing the nav graph
+ * path, and the lighting rig. `start` / `end` are exposed so callers can
+ * reposition them; `arrows` are the intermediate (non-start, non-end) waypoints.
+ */
 export type NavScene = {
   root: THREE.Group;
   start: THREE.Mesh;

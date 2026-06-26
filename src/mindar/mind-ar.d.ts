@@ -1,3 +1,7 @@
+// Hand-rolled type declarations for the `mind-ar` package, which ships
+// without TypeScript types. Only the surface used by this project is
+// declared; extend as needed.
+
 declare module 'mind-ar' {
   import type { Group, Scene, Camera, WebGLRenderer } from 'three';
 
@@ -5,7 +9,7 @@ declare module 'mind-ar' {
     group: Group;
     onTargetFound: (() => void) | null;
     onTargetLost: (() => void) | null;
-    onTargetUpdate: ((() => void) | null) | null;
+    onTargetUpdate: (() => void) | null;
     visible: boolean;
   }
 
@@ -29,7 +33,6 @@ declare module 'mind-ar' {
     public cssScene: Scene;
     public camera: Camera;
     public renderer: WebGLRenderer;
-    public cssRenderer: WebGLRenderer;
     public anchors: MindARThreeAnchor[];
 
     constructor(options: MindARThreeOptions);

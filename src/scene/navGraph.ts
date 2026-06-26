@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 export type Node = { id: string; position: THREE.Vector3 };
-export type Edge = { from: string; to: string };
+export type Edge = { from: string; to: string; cost?: number };
 export type NavGraph = { nodes: Node[]; edges: Edge[] };
 
 export function buildNavGraph(): NavGraph {

@@ -16,7 +16,7 @@ export type ImageTrackingResult = {
 export function createXRRenderer(container: HTMLElement): THREE.WebGLRenderer {
   const renderer = new THREE.WebGLRenderer({
     antialias: true,
-    alpha: true
+    alpha: true,
   });
 
   renderer.setPixelRatio(window.devicePixelRatio);
@@ -35,7 +35,7 @@ export function createXRRenderer(container: HTMLElement): THREE.WebGLRenderer {
  */
 export function getImageTrackingResults(
   frame: XRFrame,
-  refSpace: XRReferenceSpace
+  refSpace: XRReferenceSpace,
 ): ImageTrackingResult[] {
   const raw = frame.getImageTrackingResults?.();
   if (!raw) return [];
@@ -48,7 +48,7 @@ export function getImageTrackingResults(
     out.push({
       index: r.index,
       transform: new THREE.Matrix4().fromArray(pose.transform.matrix),
-      trackingState: r.trackingState
+      trackingState: r.trackingState,
     });
   }
   return out;

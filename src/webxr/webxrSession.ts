@@ -22,10 +22,7 @@ declare global {
   }
 }
 
-export type FrameCallback = (
-  frame: XRFrame,
-  referenceSpace: XRReferenceSpace
-) => void;
+export type FrameCallback = (frame: XRFrame, referenceSpace: XRReferenceSpace) => void;
 
 export class WebXRSession {
   private _xrSession: XRSession | null = null;
@@ -46,15 +43,13 @@ export class WebXRSession {
 
     const session = await navigator.xr.requestSession('immersive-ar', {
       requiredFeatures: ['local-floor'],
-      optionalFeatures: ['image-tracking', 'anchors', 'hit-test']
+      optionalFeatures: ['image-tracking', 'anchors', 'hit-test'],
     });
 
     try {
       // `requestReferenceSpace` returns `XRReferenceSpace | XRBoundedReferenceSpace`.
       // 'local-floor' never returns XRBoundedReferenceSpace (spec), cast is sound.
-      const refSpace = (await session.requestReferenceSpace(
-        'local-floor'
-      )) as XRReferenceSpace;
+      const refSpace = (await session.requestReferenceSpace('local-floor')) as XRReferenceSpace;
 
       this._xrSession = session;
       this._referenceSpace = refSpace;

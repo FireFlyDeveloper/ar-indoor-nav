@@ -51,10 +51,7 @@ describe('originTransform', () => {
     const result = applyOriginTransform(m2, T);
 
     // T = m1^-1, applyOriginTransform(m2, T) = T * m2 = m1^-1 * m2
-    const expected = new THREE.Matrix4().multiplyMatrices(
-      m1.clone().invert(),
-      m2,
-    );
+    const expected = new THREE.Matrix4().multiplyMatrices(m1.clone().invert(), m2);
 
     const rPos = new THREE.Vector3();
     const rQuat = new THREE.Quaternion();

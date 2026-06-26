@@ -1,7 +1,7 @@
 import { MindarSession } from './mindar/mindarSession';
 import { WebXRSession } from './webxr/webxrSession';
 import { createXRRenderer, getImageTrackingResults } from './webxr/renderer';
-import { updateFallbackOrigin, type WorldOrigin } from './anchors/worldOrigin';
+import { createWorldOrigin, updateFallbackOrigin, type WorldOrigin } from './anchors/worldOrigin';
 import { createNavScene } from './scene/scene';
 import { computeHandshakeOrigin } from './calibration/handshake';
 import * as THREE from 'three';
@@ -9,6 +9,15 @@ import * as THREE from 'three';
 const TARGET_URL = '/targets.mind';
 const TARGET_INDEX = 0;
 
+/**
+ * Bootstrap the AR navigation app.
+ *
+ * Wires up the Start / Recalibrate UI, runs the MindAR → WebXR handoff,
+ * builds the nav scene, and drives the XR frame loop. Expects the
+ * following DOM elements to exist: `#ui` (text container), `#start`
+ * (button), and `#recalibrate` (button). Errors from MindAR are surfaced
+ * to `#ui`; errors from WebXR propagate to the caller (see `main.ts`).
+ */
 export async function bootstrap() {
   const ui = document.getElementById('ui')!;
   const startBtn = document.getElementById('start') as HTMLButtonElement;
@@ -50,14 +59,30 @@ export async function bootstrap() {
     // Build the three.js scene + renderer
     const renderer = createXRRenderer(document.body);
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 100);
+    const camera = new THREE.PerspectiveCamera(
+      70,
+      window.innerWidth / window.innerHeight,
+      0.01,
+      100,
+    );
     const nav = createNavScene();
     scene.add(nav.root);
 
-    // World origin: a fallback Group at (0,0,0). Real anchor path is wired below.
-    const worldOrigin: WorldOrigin = { kind: 'fallback', group: new THREE.Group() };
-    worldOrigin.group.name = 'worldOrigin';
-    scene.add(worldOrigin.group);
+    // World origin: anchor path is requested but falls back to a manual
+    // THREE.Group when anchors/image-tracking are unsupported.
+    const worldOrigin: WorldOrigin = await createWorldOrigin(
+      // result is captured on the first frame; on the no-handshake path
+      // a placeholder is fine because the fallback group is overwritten
+      // before render.
+      { index: TARGET_INDEX, transform: new THREE.Matrix4(), trackingState: 'emulated' },
+      // frame / refSpace are only consulted when supportsAnchors is true.
+      // Passing null-cast placeholders would still fail the `instanceof`
+      // check inside createAnchor; passing `false` skips that branch.
+      null as unknown as XRFrame,
+      null as unknown as XRReferenceSpace,
+      scene,
+      false,
+    );
     nav.root.position.set(0, 0, 0);
 
     const webxr = new WebXRSession();
@@ -72,23 +97,10 @@ export async function bootstrap() {
         ui.textContent = 'Cannot recalibrate — no marker in view.';
         return;
       }
-      // If we still have a MindAR pose, recompute the real handshake from
-      // it and the current WebXR marker pose. Otherwise fall back to the
-      // legacy behaviour: treat the current WebXR marker as the origin.
-      if (mindarMarkerPose) {
-        const handshake = computeHandshakeOrigin({
-          mindarMarkerPose,
-          webxrMarkerPose: lastResult.transform.clone(),
-          timestamp: Date.now(),
-        });
-        worldOrigin.group.matrix.copy(handshake);
-        ui.textContent = 'Recalibrated (handshake) to current marker view.';
-      } else {
-        worldOrigin.group.matrix.copy(lastResult.transform).invert();
-        ui.textContent = 'Recalibrated (marker-as-origin) to current marker view.';
-      }
-      worldOrigin.group.matrixAutoUpdate = false;
-      worldOrigin.group.updateMatrixWorld(true);
+      applyOriginFromPose(worldOrigin, mindarMarkerPose, lastResult.transform);
+      ui.textContent = mindarMarkerPose
+        ? 'Recalibrated (handshake) to current marker view.'
+        : 'Recalibrated (marker-as-origin) to current marker view.';
     };
 
     // Bind the WebXR session to the three.js renderer
@@ -97,23 +109,10 @@ export async function bootstrap() {
       lastResult = results.find((r) => r.index === TARGET_INDEX) ?? null;
 
       if (!originReady && lastResult) {
-        if (mindarMarkerPose) {
-          // Proper handshake: real alignment using both MindAR and WebXR poses.
-          const handshake = computeHandshakeOrigin({
-            mindarMarkerPose,
-            webxrMarkerPose: lastResult.transform.clone(),
-            timestamp: Date.now(),
-          });
-          worldOrigin.group.matrix.copy(handshake);
-          ui.textContent = 'AR active. Walk to follow the path.';
-        } else {
-          // No MindAR pose captured (race condition? shouldn't happen in normal
-          // flow) — fall back to treating the marker as the world origin.
-          worldOrigin.group.matrix.copy(lastResult.transform).invert();
-          ui.textContent = 'AR active (no handshake — using marker as origin).';
-        }
-        worldOrigin.group.matrixAutoUpdate = false;
-        worldOrigin.group.updateMatrixWorld(true);
+        applyOriginFromPose(worldOrigin, mindarMarkerPose, lastResult.transform);
+        ui.textContent = mindarMarkerPose
+          ? 'AR active. Walk to follow the path.'
+          : 'AR active (no handshake — using marker as origin).';
         originReady = true;
       } else if (originReady) {
         updateFallbackOrigin(worldOrigin, lastResult);
@@ -123,4 +122,28 @@ export async function bootstrap() {
 
     renderer.xr.setSession(webxr.xrSession!);
   }
+}
+
+/**
+ * Pin the world origin to the current WebXR marker view. When a MindAR pose
+ * is available the (currently v1) handshake transform is used; otherwise we
+ * fall back to using the marker as the origin directly.
+ */
+function applyOriginFromPose(
+  origin: WorldOrigin,
+  mindarMarkerPose: THREE.Matrix4 | null,
+  webxrMarkerPose: THREE.Matrix4,
+): void {
+  if (mindarMarkerPose) {
+    const handshake = computeHandshakeOrigin({
+      mindarMarkerPose,
+      webxrMarkerPose: webxrMarkerPose.clone(),
+      timestamp: Date.now(),
+    });
+    origin.group.matrix.copy(handshake);
+  } else {
+    origin.group.matrix.copy(webxrMarkerPose).invert();
+  }
+  origin.group.matrixAutoUpdate = false;
+  origin.group.updateMatrixWorld(true);
 }

@@ -5,6 +5,12 @@ import type { ImageTrackingResult } from '../webxr/renderer';
 
 export type { ImageTrackingResult };
 
+/**
+ * The world origin used to position the nav scene. `anchor` is the
+ * preferred path (XRAnchor survives reference-space updates), `fallback`
+ * is a plain THREE.Group driven manually each frame when anchors are
+ * unavailable.
+ */
 export type WorldOrigin =
   | { kind: 'anchor'; xrAnchor: XRAnchor; group: THREE.Group }
   | { kind: 'fallback'; group: THREE.Group };
@@ -27,8 +33,9 @@ export async function createWorldOrigin(
   scene.add(group);
 
   if (supportsAnchors && typeof frame.createAnchor === 'function') {
-    // Decompose the THREE.Matrix4 into position + quaternion — the rotation
-    // quaternion is NOT the first column of the column-major matrix.
+    // Decompose the marker transform (a column-major 4x4) into its
+    // position and rotation quaternion; THREE.Matrix4.decompose() handles
+    // the matrix→TRS conversion correctly.
     const pos = new THREE.Vector3();
     const quat = new THREE.Quaternion();
     const scale = new THREE.Vector3();
@@ -47,10 +54,12 @@ export async function createWorldOrigin(
 }
 
 /**
- * For a fallback origin (no XRAnchor), copy the latest image-tracking
- * transform into the group's local matrix each frame. No-op for anchor
- * origins (the XRAnchor system drives the pose) or when no tracking
- * result is available this frame.
+ * For a fallback origin (no XRAnchor), copy the inverse of the latest
+ * image-tracking transform into the group's local matrix each frame. The
+ * group therefore represents a frame whose origin sits at the marker, so
+ * authoring in the marker's local frame matches what the user sees. No-op
+ * for anchor origins (the XRAnchor system drives the pose) or when no
+ * tracking result is available this frame.
  */
 export function updateFallbackOrigin(
   origin: WorldOrigin,
@@ -58,7 +67,7 @@ export function updateFallbackOrigin(
 ): void {
   if (origin.kind !== 'fallback' || result === null) return;
 
-  origin.group.matrix.copy(result.transform);
+  origin.group.matrix.copy(result.transform).invert();
   origin.group.matrixAutoUpdate = false;
   origin.group.updateMatrixWorld(true);
 }

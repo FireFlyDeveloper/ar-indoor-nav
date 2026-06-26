@@ -1,6 +1,7 @@
 import { MindARThree } from 'mind-ar';
 import * as THREE from 'three';
 
+/** A detected marker's pose in MindAR's own camera space (position + orientation). */
 export type MindarPose = {
   position: THREE.Vector3;
   quaternion: THREE.Quaternion;
@@ -23,16 +24,8 @@ export class MindarSession {
   private mindar: MindARThree | null = null;
   private anchorGroup: THREE.Group | null = null;
   private renderLoopActive: boolean = false;
-  private _detected: boolean = false;
 
-  public get detected(): boolean {
-    return this._detected;
-  }
-
-  public async start(
-    targetSrc: string,
-    onDetect: (pose: MindarPose) => void,
-  ): Promise<void> {
+  public async start(targetSrc: string, onDetect: (pose: MindarPose) => void): Promise<void> {
     if (this.mindar !== null) {
       throw new Error('MindarSession.start() called while already running. Call stop() first.');
     }
@@ -47,7 +40,6 @@ export class MindarSession {
       this.anchorGroup = anchor.group;
 
       anchor.onTargetFound = () => {
-        this._detected = true;
         if (this.anchorGroup === null) return;
 
         this.anchorGroup.updateMatrixWorld(true);
@@ -62,7 +54,8 @@ export class MindarSession {
       };
 
       anchor.onTargetLost = () => {
-        this._detected = false;
+        // Intentionally a no-op: the bootstrap doesn't currently react to
+        // target loss, but the SDK event is wired so future code can.
       };
 
       await this.mindar.start();
@@ -82,7 +75,6 @@ export class MindarSession {
       this.mindar = null;
       this.anchorGroup = null;
       this.renderLoopActive = false;
-      this._detected = false;
       throw err;
     }
   }
@@ -107,7 +99,6 @@ export class MindarSession {
     await this.mindar.stop();
 
     this.anchorGroup = null;
-    this._detected = false;
     this.mindar = null;
   }
 }

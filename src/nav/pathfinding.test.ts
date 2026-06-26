@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import * as THREE from 'three';
 import { aStar } from './pathfinding';
-import { buildNavGraph } from '../scene/navGraph';
+import { buildNavGraph, type NavGraph } from '../scene/navGraph';
 
 describe('aStar', () => {
   it('finds straight path A→B', () => {
@@ -14,10 +15,20 @@ describe('aStar', () => {
   });
 
   it('returns null when unreachable', () => {
-    const g2 = {
-      nodes: [{ id: 'X', position: { x: 0, y: 0, z: 0 } as any }],
+    const g2: NavGraph = {
+      nodes: [{ id: 'X', position: new THREE.Vector3(0, 0, 0) }],
       edges: [],
     };
-    expect(aStar(g2 as any, 'X', 'Y')).toBeNull();
+    expect(aStar(g2, 'X', 'Y')).toBeNull();
+  });
+
+  it('returns a single-node path when start === goal', () => {
+    const g = buildNavGraph();
+    expect(aStar(g, 'A', 'A')).toEqual(['A']);
+  });
+
+  it('returns null when start is unknown', () => {
+    const g = buildNavGraph();
+    expect(aStar(g, 'Z', 'A')).toBeNull();
   });
 });

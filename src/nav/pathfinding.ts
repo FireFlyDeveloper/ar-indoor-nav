@@ -1,9 +1,14 @@
 import * as THREE from 'three';
+import type { Node, Edge, NavGraph } from '../scene/navGraph';
 
-export type NavNode = { id: string; position: THREE.Vector3 };
-export type NavEdge = { from: string; to: string };
-export type NavGraph = { nodes: NavNode[]; edges: NavEdge[] };
+export type { Node, Edge, NavGraph };
 
+/**
+ * Outgoing neighbours of `id`. The nav graph is treated as directed; an
+ * edge `{ from: 'A', to: 'B' }` is traversable A→B but not B→A. If you need
+ * an undirected graph, add the reverse edge to `NavGraph.edges` or extend
+ * this helper to also match `e.to === id`.
+ */
 export function neighbors(graph: NavGraph, id: string): string[] {
   return graph.edges.filter((e) => e.from === id).map((e) => e.to);
 }
@@ -12,12 +17,13 @@ export function heuristic(a: THREE.Vector3, b: THREE.Vector3): number {
   return a.distanceTo(b);
 }
 
-export function getNode(graph: NavGraph, id: string): NavNode | undefined {
+export function getNode(graph: NavGraph, id: string): Node | undefined {
   return graph.nodes.find((n) => n.id === id);
 }
 
 export function aStar(graph: NavGraph, start: string, goal: string): string[] | null {
   if (!getNode(graph, start) || !getNode(graph, goal)) return null;
+  if (start === goal) return [start];
 
   const open: string[] = [start];
   const cameFrom = new Map<string, string>();
@@ -54,7 +60,9 @@ export function aStar(graph: NavGraph, start: string, goal: string): string[] | 
     open.splice(idx, 1);
 
     for (const neighborId of neighbors(graph, current)) {
-      const tentativeG = (gScore.get(current) ?? Infinity) + 1; // edge cost = 1
+      const edge = graph.edges.find((e) => e.from === current && e.to === neighborId);
+      const edgeCost = edge?.cost ?? 1;
+      const tentativeG = (gScore.get(current) ?? Infinity) + edgeCost;
       if (tentativeG < (gScore.get(neighborId) ?? Infinity)) {
         cameFrom.set(neighborId, current);
         gScore.set(neighborId, tentativeG);

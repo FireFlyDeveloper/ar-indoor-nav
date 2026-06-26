@@ -124,8 +124,3 @@ export async function bootstrap() {
     renderer.xr.setSession(webxr.xrSession!);
   }
 }
-
-
-// Silence the "imported but unused" lint while keeping `computeHandshakeOrigin`
-// available for the upcoming handshake work (Task 11).
-void computeHandshakeOrigin;

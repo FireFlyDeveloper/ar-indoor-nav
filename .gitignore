@@ -1,5 +1,11 @@
 node_modules
 dist
+dist-tsc
 .vite
 *.log
 .DS_Store
+
+# tsc emit leaks from pre-`--noEmit` build
+src/**/*.js
+vite.config.js
+*.tsbuildinfo

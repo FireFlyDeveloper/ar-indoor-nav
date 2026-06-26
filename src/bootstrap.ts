@@ -1,7 +1,11 @@
 import { MindarSession } from './mindar/mindarSession';
 import { WebXRSession } from './webxr/webxrSession';
 import { createXRRenderer, getImageTrackingResults } from './webxr/renderer';
-import { createWorldOrigin, updateFallbackOrigin, type WorldOrigin } from './anchors/worldOrigin';
+import {
+  createFallbackWorldOrigin,
+  updateFallbackOrigin,
+  type WorldOrigin,
+} from './anchors/worldOrigin';
 import { createNavScene } from './scene/scene';
 import { computeHandshakeOrigin } from './calibration/handshake';
 import * as THREE from 'three';
@@ -68,21 +72,10 @@ export async function bootstrap() {
     const nav = createNavScene();
     scene.add(nav.root);
 
-    // World origin: anchor path is requested but falls back to a manual
-    // THREE.Group when anchors/image-tracking are unsupported.
-    const worldOrigin: WorldOrigin = await createWorldOrigin(
-      // result is captured on the first frame; on the no-handshake path
-      // a placeholder is fine because the fallback group is overwritten
-      // before render.
-      { index: TARGET_INDEX, transform: new THREE.Matrix4(), trackingState: 'emulated' },
-      // frame / refSpace are only consulted when supportsAnchors is true.
-      // Passing null-cast placeholders would still fail the `instanceof`
-      // check inside createAnchor; passing `false` skips that branch.
-      null as unknown as XRFrame,
-      null as unknown as XRReferenceSpace,
-      scene,
-      false,
-    );
+    // World origin: fallback path (plain THREE.Group) since this build
+    // does not wire up XRAnchor; the group's matrix is driven each frame
+    // from the WebXR image-tracking result.
+    const worldOrigin: WorldOrigin = createFallbackWorldOrigin(scene);
     nav.root.position.set(0, 0, 0);
 
     const webxr = new WebXRSession();

@@ -69,6 +69,7 @@ export class MindarSession {
         renderer.render(scene, camera);
       });
     } catch (err) {
+      this.detachCanvas();
       if (this.mindar !== null) {
         await this.mindar.stop();
       }
@@ -91,14 +92,15 @@ export class MindarSession {
       this.renderLoopActive = false;
     }
 
-    const domElement = renderer.domElement;
-    if (domElement.parentNode !== null) {
-      domElement.parentNode.removeChild(domElement);
-    }
-
+    this.detachCanvas();
     await this.mindar.stop();
 
     this.anchorGroup = null;
     this.mindar = null;
+  }
+
+  private detachCanvas(): void {
+    const el = this.mindar?.renderer.domElement;
+    if (el?.parentNode) el.parentNode.removeChild(el);
   }
 }

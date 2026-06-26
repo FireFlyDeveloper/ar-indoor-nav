@@ -16,40 +16,50 @@ export type WorldOrigin =
   | { kind: 'fallback'; group: THREE.Group };
 
 /**
- * Create a world origin for a tracked image, preferring an XRAnchor (which
- * tracks across reference-space updates) and falling back to a plain
- * THREE.Group whose matrix is driven manually when the anchors feature is
- * unavailable or frame.createAnchor is not implemented.
+ * Create a world origin for a tracked image using an XRAnchor (which tracks
+ * across reference-space updates). Use this when the device supports image
+ * tracking + anchors.
  */
-export async function createWorldOrigin(
+export async function createAnchorWorldOrigin(
   result: ImageTrackingResult,
   frame: XRFrame,
   refSpace: XRReferenceSpace,
   scene: THREE.Scene,
-  supportsAnchors: boolean,
 ): Promise<WorldOrigin> {
   const group = new THREE.Group();
   group.name = 'worldOrigin';
   scene.add(group);
 
-  if (supportsAnchors && typeof frame.createAnchor === 'function') {
-    // Decompose the marker transform (a column-major 4x4) into its
-    // position and rotation quaternion; THREE.Matrix4.decompose() handles
-    // the matrix→TRS conversion correctly.
-    const pos = new THREE.Vector3();
-    const quat = new THREE.Quaternion();
-    const scale = new THREE.Vector3();
-    result.transform.decompose(pos, quat, scale);
+  // Decompose the marker transform (a column-major 4x4) into its
+  // position and rotation quaternion; THREE.Matrix4.decompose() handles
+  // the matrix→TRS conversion correctly.
+  const pos = new THREE.Vector3();
+  const quat = new THREE.Quaternion();
+  const scale = new THREE.Vector3();
+  result.transform.decompose(pos, quat, scale);
 
-    const pose = new XRRigidTransform(
-      { x: pos.x, y: pos.y, z: pos.z, w: 1 } as DOMPointInit,
-      { x: quat.x, y: quat.y, z: quat.z, w: quat.w } as DOMPointInit,
-    );
+  const pose = new XRRigidTransform(
+    { x: pos.x, y: pos.y, z: pos.z, w: 1 } as DOMPointInit,
+    { x: quat.x, y: quat.y, z: quat.z, w: quat.w } as DOMPointInit,
+  );
 
-    const xrAnchor = await frame.createAnchor(pose, refSpace);
-    return { kind: 'anchor', xrAnchor, group };
+  if (typeof frame.createAnchor !== 'function') {
+    throw new Error('frame.createAnchor is not supported on this device');
   }
+  const xrAnchor = await frame.createAnchor(pose, refSpace);
+  return { kind: 'anchor', xrAnchor, group };
+}
 
+/**
+ * Create a placeholder world origin as a plain THREE.Group. The group's
+ * matrix must be driven each frame (see `updateFallbackOrigin`) from the
+ * latest image-tracking transform. Use this when the device does not
+ * support anchors.
+ */
+export function createFallbackWorldOrigin(scene: THREE.Scene): WorldOrigin {
+  const group = new THREE.Group();
+  group.name = 'worldOrigin';
+  scene.add(group);
   return { kind: 'fallback', group };
 }
 

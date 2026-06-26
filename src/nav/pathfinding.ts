@@ -25,13 +25,24 @@ export function aStar(graph: NavGraph, start: string, goal: string): string[] | 
   if (!getNode(graph, start) || !getNode(graph, goal)) return null;
   if (start === goal) return [start];
 
+  const goalNode = getNode(graph, goal)!;
+
+  // Precompute outgoing edges per node so neighbor lookups inside the
+  // search loop are O(deg(current)) instead of O(E) per node.
+  const outgoing = new Map<string, Edge[]>();
+  for (const node of graph.nodes) outgoing.set(node.id, []);
+  for (const edge of graph.edges) {
+    const list = outgoing.get(edge.from);
+    if (list) list.push(edge);
+  }
+
   const open: string[] = [start];
   const cameFrom = new Map<string, string>();
   const gScore = new Map<string, number>();
   const fScore = new Map<string, number>();
 
   gScore.set(start, 0);
-  fScore.set(start, heuristic(getNode(graph, start)!.position, getNode(graph, goal)!.position));
+  fScore.set(start, heuristic(getNode(graph, start)!.position, goalNode.position));
 
   while (open.length > 0) {
     // pick the open node with lowest fScore
@@ -59,15 +70,14 @@ export function aStar(graph: NavGraph, start: string, goal: string): string[] | 
     const idx = open.indexOf(current);
     open.splice(idx, 1);
 
-    for (const neighborId of neighbors(graph, current)) {
-      const edge = graph.edges.find((e) => e.from === current && e.to === neighborId);
-      const edgeCost = edge?.cost ?? 1;
+    for (const edge of outgoing.get(current) ?? []) {
+      const neighborId = edge.to;
+      const edgeCost = edge.cost ?? 1;
       const tentativeG = (gScore.get(current) ?? Infinity) + edgeCost;
       if (tentativeG < (gScore.get(neighborId) ?? Infinity)) {
         cameFrom.set(neighborId, current);
         gScore.set(neighborId, tentativeG);
         const neighborNode = getNode(graph, neighborId)!;
-        const goalNode = getNode(graph, goal)!;
         fScore.set(neighborId, tentativeG + heuristic(neighborNode.position, goalNode.position));
         if (!open.includes(neighborId)) open.push(neighborId);
       }

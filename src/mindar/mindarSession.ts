@@ -13,6 +13,8 @@ export type MindarPose = {
  *   1. start(targetSrc, onDetect)  - initializes the camera, anchors, and render loop.
  *   2. stop()                     - tears everything down and releases the camera.
  *
+ * Mounts the MindAR renderer's canvas to document.body; stop() detaches it.
+ *
  * IMPORTANT: MindAR holds the camera exclusively. `stop()` MUST be awaited
  * before any code path requests a new WebXR session, otherwise WebXR will
  * fail to acquire the camera.
@@ -35,43 +37,54 @@ export class MindarSession {
       throw new Error('MindarSession.start() called while already running. Call stop() first.');
     }
 
-    this.mindar = new MindARThree({
-      container: document.body,
-      imageTargetSrc: targetSrc,
-    });
+    try {
+      this.mindar = new MindARThree({
+        container: document.body,
+        imageTargetSrc: targetSrc,
+      });
 
-    const anchor = this.mindar.addAnchor(0);
-    this.anchorGroup = anchor.group;
+      const anchor = this.mindar.addAnchor(0);
+      this.anchorGroup = anchor.group;
 
-    anchor.onTargetFound = () => {
-      this._detected = true;
-      if (this.anchorGroup === null) return;
+      anchor.onTargetFound = () => {
+        this._detected = true;
+        if (this.anchorGroup === null) return;
 
-      this.anchorGroup.updateMatrixWorld(true);
+        this.anchorGroup.updateMatrixWorld(true);
 
-      const position = new THREE.Vector3();
-      const quaternion = new THREE.Quaternion();
-      const scale = new THREE.Vector3();
+        const position = new THREE.Vector3();
+        const quaternion = new THREE.Quaternion();
+        const scale = new THREE.Vector3();
 
-      this.anchorGroup.matrixWorld.decompose(position, quaternion, scale);
+        this.anchorGroup.matrixWorld.decompose(position, quaternion, scale);
 
-      onDetect({ position, quaternion });
-    };
+        onDetect({ position, quaternion });
+      };
 
-    anchor.onTargetLost = () => {
+      anchor.onTargetLost = () => {
+        this._detected = false;
+      };
+
+      await this.mindar.start();
+
+      const renderer = this.mindar.renderer;
+      const scene = this.mindar.scene;
+      const camera = this.mindar.camera;
+
+      this.renderLoopActive = true;
+      renderer.setAnimationLoop(() => {
+        renderer.render(scene, camera);
+      });
+    } catch (err) {
+      if (this.mindar !== null) {
+        await this.mindar.stop();
+      }
+      this.mindar = null;
+      this.anchorGroup = null;
+      this.renderLoopActive = false;
       this._detected = false;
-    };
-
-    await this.mindar.start();
-
-    const renderer = this.mindar.renderer;
-    const scene = this.mindar.scene;
-    const camera = this.mindar.camera;
-
-    this.renderLoopActive = true;
-    renderer.setAnimationLoop(() => {
-      renderer.render(scene, camera);
-    });
+      throw err;
+    }
   }
 
   public async stop(): Promise<void> {

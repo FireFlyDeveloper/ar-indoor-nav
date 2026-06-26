@@ -30,7 +30,10 @@ export type FrameCallback = (
 export class WebXRSession {
   private _xrSession: XRSession | null = null;
   private _referenceSpace: XRReferenceSpace | null = null;
+  private _frameHandle: number | null = null;
+  private _onFrameCallback: FrameCallback | null = null;
 
+  /** Requests an immersive-ar session and starts the frame loop, invoking `onFrame` each XR frame. */
   async start(onFrame: FrameCallback): Promise<void> {
     if (typeof navigator === 'undefined' || !navigator.xr) {
       throw new Error('WebXR is not available in this browser.');
@@ -46,24 +49,52 @@ export class WebXRSession {
       optionalFeatures: ['image-tracking', 'anchors', 'hit-test']
     });
 
-    // `requestReferenceSpace` returns `XRReferenceSpace | XRBoundedReferenceSpace`;
-    // we only need the base XRReferenceSpace API so a cast keeps the surface
-    // narrow at the call site.
-    const refSpace = (await session.requestReferenceSpace(
-      'local-floor'
-    )) as XRReferenceSpace;
+    try {
+      // `requestReferenceSpace` returns `XRReferenceSpace | XRBoundedReferenceSpace`.
+      // 'local-floor' never returns XRBoundedReferenceSpace (spec), cast is sound.
+      const refSpace = (await session.requestReferenceSpace(
+        'local-floor'
+      )) as XRReferenceSpace;
 
-    this._xrSession = session;
-    this._referenceSpace = refSpace;
+      this._xrSession = session;
+      this._referenceSpace = refSpace;
+      this._onFrameCallback = onFrame;
 
-    session.requestAnimationFrame((_time, frame) => onFrame(frame, refSpace));
+      // rAF is one-shot; _onFrame re-registers itself to keep the loop running.
+      this._frameHandle = session.requestAnimationFrame(this._onFrame);
+    } catch (err) {
+      await session.end();
+      this._xrSession = null;
+      this._referenceSpace = null;
+      this._frameHandle = null;
+      this._onFrameCallback = null;
+      throw err;
+    }
   }
 
+  // rAF is one-shot — this method re-registers itself each tick to keep the loop alive.
+  private _onFrame = (_time: number, frame: XRFrame): void => {
+    const cb = this._onFrameCallback;
+    const refSpace = this._referenceSpace;
+    const session = this._xrSession;
+    if (cb === null || refSpace === null || session === null) {
+      return;
+    }
+    cb(frame, refSpace);
+    this._frameHandle = session.requestAnimationFrame(this._onFrame);
+  };
+
+  /** Cancels the frame loop and ends the underlying XRSession, releasing XR resources. */
   async end(): Promise<void> {
     const session = this._xrSession;
     if (!session) return;
+    if (this._frameHandle !== null) {
+      session.cancelAnimationFrame(this._frameHandle);
+    }
     this._xrSession = null;
     this._referenceSpace = null;
+    this._frameHandle = null;
+    this._onFrameCallback = null;
     await session.end();
   }
 

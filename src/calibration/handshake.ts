@@ -8,18 +8,19 @@ export type Calibration = {
 };
 
 /**
- * v1: Compute the world→marker origin transform from a single WebXR marker pose
- * (i.e. the inverse of the marker pose, so the marker becomes the world origin).
+ * @deprecated The MindAR↔WebXR handshake is no longer part of the v2
+ * architecture. The world origin is now established by a user-tapped
+ * hit-test, not by a marker pose. The v1 single-marker approximation
+ * (where `webxrMarkerPose` was used as the inverse origin) is the
+ * historical artifact preserved by this function — it returns the
+ * identity matrix because the bootstrap now reads the hit pose
+ * directly from `XRHitTestResult.getPose(refSpace)` and feeds it into
+ * `createAnchorWorldOrigin` (or the Group fallback). The function is
+ * retained for backwards compatibility with any external callers and
+ * to document the evolution in-tree.
  *
- * NOTE: This is NOT a real MindAR↔WebXR alignment. MindAR's camera space and
- * WebXR's `local-floor` reference space are different coordinate systems, and
- * a single marker provides no constraint to map one into the other. The
- * `mindarMarkerPose` is accepted and stored in `Calibration` for a future v2
- * implementation that will use it (e.g. with a second reference marker) to
- * derive a real handshake transform. For v1 the function simply returns
- * `M_webxr^-1`, matching the single-marker fallback the bootstrap uses
- * directly.
+ * NOTE: `mindarMarkerPose` and `webxrMarkerPose` are accepted and ignored.
  */
-export function computeHandshakeOrigin(c: Calibration): THREE.Matrix4 {
-  return c.webxrMarkerPose.clone().invert();
+export function computeHandshakeOrigin(_c: Calibration): THREE.Matrix4 {
+  return new THREE.Matrix4();
 }

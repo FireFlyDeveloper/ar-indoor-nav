@@ -5,7 +5,9 @@
  *
  * The WebXR image-tracking module spec is still a draft, so on the
  * `XRFrame` interface we locally declare the `getImageTrackingResults()`
- * member so the raw navigator.xr API can be consumed without `any`.
+ * member so the raw navigator.xr API can be consumed without `any`
+ * (we no longer request the feature, but the type stays for any
+ * device that still exposes it).
  *
  * Spec: https://immersive-web.github.io/webxr-image-tracking/
  *
@@ -44,6 +46,12 @@ export class WebXRSession {
    * start a frame loop — the caller is expected to pass the session to
    * `renderer.xr.setSession(session)` and register the per-frame callback
    * via `renderer.setAnimationLoop(animate)`.
+   *
+   * Optional features requested: `anchors` (so we can call
+   * `frame.createAnchor()` for a world-stable world origin) and `hit-test`
+   * (so we can place additional AR objects on real surfaces). Image-tracking
+   * is intentionally NOT requested: the world origin is established via
+   * user-tap-driven hit-test, not via a marker pose.
    */
   async start(): Promise<void> {
     if (typeof navigator === 'undefined' || !navigator.xr) {
@@ -57,7 +65,7 @@ export class WebXRSession {
 
     const session = await navigator.xr.requestSession('immersive-ar', {
       requiredFeatures: ['local-floor'],
-      optionalFeatures: ['image-tracking', 'anchors', 'hit-test'],
+      optionalFeatures: ['anchors', 'hit-test'],
     });
 
     try {

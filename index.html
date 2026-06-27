@@ -23,11 +23,19 @@
       border-radius: 8px; border: 0; cursor: pointer;
       display: none;
     }
+    #launchAr {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+      padding: 14px 24px; font-size: 16px; z-index: 20;
+      border-radius: 8px; border: 0; cursor: pointer;
+      display: none; background: #ff3aa9; color: white;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    }
   </style>
 </head>
 <body>
   <div id="ui">Idle. Print and scan the marker to start.</div>
   <button id="start">Start AR Navigation</button>
+  <button id="launchAr">Launch AR Session</button>
   <button id="recalibrate">Recalibrate</button>
   <script type="module" src="/src/main.ts"></script>
 </body>

@@ -1,13 +1,17 @@
 /// <reference types="webxr" />
 
 /**
- * WebXR session wrapper.
+ * WebXR session wrapper — lifecycle only.
  *
  * The WebXR image-tracking module spec is still a draft, so on the
  * `XRFrame` interface we locally declare the `getImageTrackingResults()`
  * member so the raw navigator.xr API can be consumed without `any`.
  *
  * Spec: https://immersive-web.github.io/webxr-image-tracking/
+ *
+ * The frame loop is **not** driven from this class. Callers pass the
+ * returned `XRSession` to `renderer.xr.setSession(session)` and register
+ * their animate callback via `renderer.setAnimationLoop(animate)`.
  */
 declare global {
   interface XRImageTrackingResult {
@@ -22,16 +26,26 @@ declare global {
   }
 }
 
+/**
+ * Per-frame callback signature for the caller-supplied animate closure.
+ * Matches the `(timestamp, frame)` shape of `renderer.setAnimationLoop` minus
+ * the timestamp (not needed by the project).
+ */
 export type FrameCallback = (frame: XRFrame, referenceSpace: XRReferenceSpace) => void;
 
 export class WebXRSession {
   private _xrSession: XRSession | null = null;
   private _referenceSpace: XRReferenceSpace | null = null;
-  private _frameHandle: number | null = null;
-  private _onFrameCallback: FrameCallback | null = null;
 
-  /** Requests an immersive-ar session and starts the frame loop, invoking `onFrame` each XR frame. */
-  async start(onFrame: FrameCallback): Promise<void> {
+  /**
+   * Requests an immersive-ar session and acquires a `local-floor` reference
+   * space. The session and reference space are stored on the instance and
+   * exposed via the `xrSession` / `referenceSpace` getters. Does **not**
+   * start a frame loop — the caller is expected to pass the session to
+   * `renderer.xr.setSession(session)` and register the per-frame callback
+   * via `renderer.setAnimationLoop(animate)`.
+   */
+  async start(): Promise<void> {
     if (typeof navigator === 'undefined' || !navigator.xr) {
       throw new Error('WebXR is not available in this browser.');
     }
@@ -53,43 +67,20 @@ export class WebXRSession {
 
       this._xrSession = session;
       this._referenceSpace = refSpace;
-      this._onFrameCallback = onFrame;
-
-      // rAF is one-shot; _onFrame re-registers itself to keep the loop running.
-      this._frameHandle = session.requestAnimationFrame(this._onFrame);
     } catch (err) {
       await session.end();
       this._xrSession = null;
       this._referenceSpace = null;
-      this._frameHandle = null;
-      this._onFrameCallback = null;
       throw err;
     }
   }
 
-  // rAF is one-shot — this method re-registers itself each tick to keep the loop alive.
-  private _onFrame = (_time: number, frame: XRFrame): void => {
-    const cb = this._onFrameCallback;
-    const refSpace = this._referenceSpace;
-    const session = this._xrSession;
-    if (cb === null || refSpace === null || session === null) {
-      return;
-    }
-    cb(frame, refSpace);
-    this._frameHandle = session.requestAnimationFrame(this._onFrame);
-  };
-
-  /** Cancels the frame loop and ends the underlying XRSession, releasing XR resources. */
+  /** Ends the underlying XRSession, releasing XR resources. */
   async end(): Promise<void> {
     const session = this._xrSession;
     if (!session) return;
-    if (this._frameHandle !== null) {
-      session.cancelAnimationFrame(this._frameHandle);
-    }
     this._xrSession = null;
     this._referenceSpace = null;
-    this._frameHandle = null;
-    this._onFrameCallback = null;
     await session.end();
   }
 

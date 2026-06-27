@@ -1,4 +1,4 @@
-import { MindARThree } from 'mind-ar';
+import { MindARThree } from 'mind-ar/dist/mindar-image-three.prod.js';
 import * as THREE from 'three';
 
 /** A detected marker's pose in MindAR's own camera space (position + orientation). */

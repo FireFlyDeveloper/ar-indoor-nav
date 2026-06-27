@@ -96,8 +96,18 @@ export async function bootstrap() {
         : 'Recalibrated (marker-as-origin) to current marker view.';
     };
 
-    // Bind the WebXR session to the three.js renderer
-    await webxr.start((frame, refSpace) => {
+    // Bind the WebXR session to the three.js renderer, then register the
+    // per-frame callback via renderer.setAnimationLoop — the canonical
+    // three.js WebXR pattern. The renderer drives the XR frame clock
+    // automatically once a session is attached.
+    await webxr.start();
+    renderer.xr.setSession(webxr.xrSession!);
+
+    renderer.setAnimationLoop((_timestamp, frame) => {
+      if (!frame) return;
+      const refSpace = webxr.referenceSpace;
+      if (!refSpace) return;
+
       const results = getImageTrackingResults(frame, refSpace);
       lastResult = results.find((r) => r.index === TARGET_INDEX) ?? null;
 
@@ -112,8 +122,6 @@ export async function bootstrap() {
       }
       renderer.render(scene, camera);
     });
-
-    renderer.xr.setSession(webxr.xrSession!);
   }
 }
 

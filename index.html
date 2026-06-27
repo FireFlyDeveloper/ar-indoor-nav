@@ -30,6 +30,13 @@
       display: none; background: #ff3aa9; color: white;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
     }
+    #placeOnSurface {
+      position: fixed; bottom: 24px; right: 12px; z-index: 20;
+      padding: 12px 16px; font-size: 14px;
+      border-radius: 8px; border: 0; cursor: pointer;
+      display: none; background: #00aa66; color: white;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    }
   </style>
 </head>
 <body>
@@ -37,6 +44,7 @@
   <button id="start">Start AR Navigation</button>
   <button id="launchAr">Launch AR Session</button>
   <button id="recalibrate">Recalibrate</button>
+  <button id="placeOnSurface">Place marker on surface</button>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

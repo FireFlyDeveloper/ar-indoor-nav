@@ -5,7 +5,7 @@ A web-based AR indoor navigation prototype that uses a printed image marker to a
 ## Stack
 
 - **MindAR** (`^1.2.5`) — image-target detection and tracking
-- **WebXR** (Immersive AR + image-tracking module + anchors module) — for rendering the AR session on supported devices
+- **WebXR** (Immersive AR + image-tracking module + anchors module + hit-test module) — for rendering the AR session and surface placement on supported devices
 - **three.js** (`^0.184.0`) — 3D rendering and scene graph
 - **TypeScript** (`^5.5`) — strict-typed source
 - **Vite 5** (`^5.4`) — dev server (with `@vitejs/plugin-basic-ssl` for HTTPS, required by WebXR) and production bundler
@@ -82,7 +82,8 @@ The `public/targets.mind` file is a compiled MindAR target file generated from `
 - **Coordinate-space mismatch (v1).** MindAR reports the marker pose in MindAR's own internal camera frame, while WebXR reports it in the `local-floor` reference space. The bootstrap currently uses a _one-marker_ approximation: it assumes the marker _is_ the world origin and applies the WebXR-reported marker transform as the inverse origin. This is correct when the user's first WebXR view of the marker matches the MindAR detection frame, but will drift if the user moves between the two captures. For production, place a second reference marker at a known world position to compute the real MindAR↔WebXR handshake transform (`computeHandshakeOrigin` in `src/calibration/handshake.ts` is the v2 hook for this).
 - **Handshake v1 is wired but the formula is the same as the single-marker fallback.** `computeHandshakeOrigin` currently returns the inverse of the WebXR marker pose (so the marker sits at the origin), which is mathematically the same as the fallback branch. The `mindarMarkerPose` field on the `Calibration` input is accepted but unused; the v2 implementation will consume it for a real MindAR↔WebXR alignment. The bootstrap already invokes `computeHandshakeOrigin` on the first tracked frame and on Recalibrate, so swapping in a real v2 formula is a one-line change.
 - **MindAR pose is single-frame.** The handshake module only captures the first detection pose; lost-target recovery re-pins to the current frame (drift).
-- **Hit-test is requested as an optional feature** (`'hit-test'` in `requestSession` options). The session negotiates it on capable devices, but the project does not yet use it for surface placement. Future work: a "drop marker on surface" button that calls `frame.getHitTestResults()`, takes the first hit pose, and adds a mesh to the scene at that world position.
+- **Hit-test is wired as an optional surface-placement feature.** A "Place marker on surface" button calls `frame.getHitTestResults()` and drops a `makePlacedMarker` (green sphere) at the most recent surface hit. Hit-test is **not** used to place navigation arrows — those are authored from the nav graph in `src/scene/scene.ts` and live under `NavScene.root`.
+- **XRAnchor path reserved for v2.** The XRAnchor-backed world origin (`createAnchorWorldOrigin` in `src/anchors/worldOrigin.ts`) is defined and the bootstrap feature-detects it, but v1 always falls back to the plain-`THREE.Group` path. The XRAnchor path will be wired in v2 once we confirm the target devices expose `frame.createAnchor` with the image-tracking module.
 - **No iOS path.** See _Browser support_.
 - **HTTPS required.** Browsers will not grant camera access (or WebXR sessions) to plain HTTP origins, which is why the dev server uses `@vitejs/plugin-basic-ssl`'s self-signed cert. You will need to accept the cert warning on first visit.
 
@@ -98,6 +99,9 @@ src/
 ├── webxr/
 │   ├── webxrSession.ts      # WebXRSession class — requests an immersive-ar session with image-tracking, anchors, hit-test.
 │   └── renderer.ts          # createXRRenderer + getImageTrackingResults (raw XRFrame API; three.js r0.184 doesn't expose it).
+├── hit-test/
+│   ├── hitTestSession.ts      # HitTestSession class — wraps XRHitTestSource; poll() returns the current surface hit.
+│   └── hitTestSession.test.ts
 ├── anchors/
 │   └── worldOrigin.ts       # XRAnchor-backed world origin with a Group-matrix fallback path.
 ├── calibration/

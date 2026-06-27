@@ -9,11 +9,13 @@ import * as THREE from 'three';
  *
  * Spec: https://immersive-web.github.io/hit-test/
  *
- * The hit-test module is used in this project as a SESSION FEATURE for
- * placing individual 3D objects (arrows, path indicators, destination
- * markers) on real surfaces. It is NOT used to establish the world
- * origin — that is done by MindAR + XRAnchor (see
- * `src/anchors/worldOrigin.ts` and `src/mindar/mindarSession.ts`).
+ * The hit-test module is used in this project ONLY for placing user-chosen
+ * `makePlacedMarker` (a green sphere) onto real surfaces in front of the
+ * user via the "Place marker on surface" button. It is NOT used to place
+ * navigation arrows, path indicators, or destination markers — those
+ * are authored from the nav graph in `src/scene/scene.ts` and live under
+ * `NavScene.root`. The world origin is established by MindAR + XRAnchor
+ * (see `src/anchors/worldOrigin.ts` and `src/mindar/mindarSession.ts`).
  */
 
 /**

@@ -34,13 +34,15 @@ const TARGET_INDEX = 0;
  *      the nav scene does not drift as the user walks. A plain-Group
  *      fallback is used when anchors are unavailable.
  *
- *   4. WebXR hit-test (surface detection for object placement). A
- *      separate hit-test session is acquired for the SAME WebXR session
- *      and is used to place individual 3D objects (arrows, path
- *      indicators, destination markers) on real surfaces in front of
- *      the user. Hit-test does NOT establish the world origin; it
- *      populates the `NavScene.placed` group with objects the user taps
- *      to drop.
+ *   4. WebXR hit-test (optional surface-placement feature). A separate
+ *      hit-test session is acquired for the SAME WebXR session and is
+ *      used to place user-chosen AR Objects (a `makePlacedMarker` green
+ *      sphere) onto real surfaces in front of the user via the
+ *      "Place marker on surface" button. Hit-test does NOT establish
+ *      the world origin and is NOT used to place navigation arrows —
+ *      those are authored from the nav graph in `src/scene/scene.ts`
+ *      and live under `NavScene.root` (see `nav.placed` for the
+ *      group that receives user-tapped markers).
  *
  * Two-stage UX:
  *   1. User clicks #start → MindAR camera starts, scans for the marker.
@@ -146,12 +148,22 @@ export async function bootstrap() {
       0.01,
       100,
     );
+
+    // Architecture invariant: nav.root is positioned at (0,0,0) (set in
+    // createNavScene). worldOrigin is a sibling of nav.root, NOT a parent.
+    // The world-origin group's matrix is driven each frame to be the inverse
+    // of the marker's WebXR pose. The effective transform on the nav scene
+    // is therefore nav.root.matrix * worldOrigin.matrix = inverse(marker pose).
+    // If createNavScene ever changes the nav.root position, the marker
+    // anchoring will break silently.
     const nav = createNavScene();
     scene.add(nav.root);
 
-    // World origin: fallback path (plain THREE.Group) since this build
-    // does not wire up XRAnchor; the group's matrix is driven each frame
-    // from the WebXR image-tracking result.
+    // World origin: using the Group fallback path. The XRAnchor path
+    // (createAnchorWorldOrigin in src/anchors/worldOrigin.ts) is defined and
+    // feature-detected, but requires the device to expose frame.createAnchor
+    // with the image-tracking module. This v1 implementation always uses the
+    // fallback; the XRAnchor path is reserved for v2.
     const worldOrigin: WorldOrigin = createFallbackWorldOrigin(scene);
     nav.root.position.set(0, 0, 0);
 

@@ -17,7 +17,7 @@ The app uses **three** Web-AR technologies together. They are not alternatives �
 
 1. **MindAR** detects the printed marker at startup. The first detection captures the marker's pose in MindAR's camera space (the "where am I" question). The MindAR camera is then released so the same physical camera can be acquired by WebXR.
 2. **WebXR immersive-ar** session (started from a user-gesture handler, the Launch button) takes over the camera and tracks the user's movement through space. It requests the `image-tracking` and `anchors` optional features.
-3. **XRAnchor** (anchors module) locks the nav scene's world origin to the marker's WebXR pose so the authored nav graph does not drift as the user walks. A plain-`THREE.Group` matrix fallback is used on devices that do not support anchors.
+3. **XRAnchor** (anchors module) locks the nav scene's world origin to the marker's WebXR pose so the authored nav graph does not drift as the user walks. The bootstrap creates the anchor via `frame.createAnchor(pose, refSpace)` and drives the world-origin group's matrix from `frame.getPose(anchor.anchorSpace, refSpace)` each frame. A plain-`THREE.Group` matrix fallback is used only when the device does not expose `frame.createAnchor` (or it throws); the fallback is user-relative because `local-floor` is camera-anchored, so on those devices the scene will appear to follow the user as they walk.
 
 ```
         +--------------------------+
@@ -66,7 +66,7 @@ Print the marker image at `public/card.png` (a sample card is shipped). In the r
 
 1. Click **Start AR Navigation**. The app requests camera access and starts MindAR.
 2. Point the camera at the printed marker. MindAR detects it and the status updates to "Marker detected".
-3. Tap **Launch AR Session**. The browser hands off to WebXR immersive-ar. The nav scene is anchored to the marker's WebXR pose and appears in the camera view.
+3. Tap **Launch AR Session**. The browser hands off to WebXR immersive-ar. On devices that expose the anchors module, an XRAnchor is created from the marker's first-detected pose and the world origin is driven from the anchor each frame (world-stable). On devices without anchors, the world origin is a frozen Group matrix (user-relative; the scene may follow you as you walk). The nav scene is placed in the camera view either way.
 4. Tap **Recalibrate** at any time to re-pin the world origin to the current marker view (useful if the nav scene drifts as you walk).
 
 The `public/targets.mind` file is a compiled MindAR target file generated from `public/card.png`. Both are checked into the repo so the app works out of the box on a fresh clone.
@@ -83,7 +83,7 @@ The `public/targets.mind` file is a compiled MindAR target file generated from `
 - **Handshake v1 is wired but the formula is the same as the single-marker fallback.** `computeHandshakeOrigin` currently returns the inverse of the WebXR marker pose (so the marker sits at the origin), which is mathematically the same as the fallback branch. The `mindarMarkerPose` field on the `Calibration` input is accepted but unused; the v2 implementation will consume it for a real MindAR↔WebXR alignment. The bootstrap already invokes `computeHandshakeOrigin` on the first tracked frame and on Recalibrate, so swapping in a real v2 formula is a one-line change.
 - **MindAR pose is single-frame.** The handshake module only captures the first detection pose; lost-target recovery re-pins to the current frame (drift).
 - **Hit-test is wired as an optional surface-placement feature.** A "Place marker on surface" button calls `frame.getHitTestResults()` and drops a `makePlacedMarker` (green sphere) at the most recent surface hit. Hit-test is **not** used to place navigation arrows — those are authored from the nav graph in `src/scene/scene.ts` and live under `NavScene.root`.
-- **XRAnchor path reserved for v2.** The XRAnchor-backed world origin (`createAnchorWorldOrigin` in `src/anchors/worldOrigin.ts`) is defined and the bootstrap feature-detects it, but v1 always falls back to the plain-`THREE.Group` path. The XRAnchor path will be wired in v2 once we confirm the target devices expose `frame.createAnchor` with the image-tracking module.
+- **Group fallback is user-relative.** When the device does not expose `frame.createAnchor` (or it throws), the bootstrap falls back to a plain-`THREE.Group` whose matrix is pinned once at first marker detection. Because `local-floor` is a camera-anchored reference space that moves with the user, a frozen Group matrix is necessarily user-relative: the scene will appear to "follow me" as the user walks. The XRAnchor path is the canonical fix; the fallback is the v1 limitation. The Recalibrate button re-pins the matrix on demand when the marker is in view.
 - **No iOS path.** See _Browser support_.
 - **HTTPS required.** Browsers will not grant camera access (or WebXR sessions) to plain HTTP origins, which is why the dev server uses `@vitejs/plugin-basic-ssl`'s self-signed cert. You will need to accept the cert warning on first visit.
 

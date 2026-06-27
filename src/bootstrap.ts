@@ -1,7 +1,11 @@
 import { MindarSession } from './mindar/mindarSession';
 import { WebXRSession } from './webxr/webxrSession';
 import { createXRRenderer, getImageTrackingResults } from './webxr/renderer';
-import { createFallbackWorldOrigin, type WorldOrigin } from './anchors/worldOrigin';
+import {
+  createAnchorWorldOrigin,
+  createFallbackWorldOrigin,
+  type WorldOrigin,
+} from './anchors/worldOrigin';
 import { computeHandshakeOrigin } from './calibration/handshake';
 import { HitTestSession } from './hit-test/hitTestSession';
 import { createNavScene } from './scene/scene';
@@ -26,9 +30,14 @@ const TARGET_INDEX = 0;
  *      `image-tracking`, `anchors`, and `hit-test` optional features.
  *
  *   3. XRAnchor (world stability). The world origin of the nav scene is
- *      pinned to the marker's WebXR pose via `frame.createAnchor`, so
- *      the nav scene does not drift as the user walks. A plain-Group
- *      fallback is used when anchors are unavailable.
+ *      pinned to the marker's first-detected pose via `frame.createAnchor`,
+ *      so the nav scene does not drift as the user walks. The browser
+ *      tracks the anchor via visual-inertial odometry and we read its
+ *      pose each frame from `frame.getPose(anchor.anchorSpace, refSpace)`.
+ *      A plain-`THREE.Group` matrix fallback is used only when the
+ *      device does not expose `frame.createAnchor` (or it throws). The
+ *      fallback is user-relative and will appear to "follow me" as the
+ *      user walks — documented honestly in the fallback docstring.
  *
  *   4. WebXR hit-test (optional surface-placement feature). A separate
  *      hit-test session is acquired for the SAME WebXR session and is
@@ -147,20 +156,26 @@ export async function bootstrap() {
 
     // Architecture invariant: nav.root is positioned at (0,0,0) (set in
     // createNavScene). worldOrigin is a sibling of nav.root, NOT a parent.
-    // The world-origin group's matrix is driven each frame to be the inverse
-    // of the marker's WebXR pose. The effective transform on the nav scene
-    // is therefore nav.root.matrix * worldOrigin.matrix = inverse(marker pose).
-    // If createNavScene ever changes the nav.root position, the marker
-    // anchoring will break silently.
+    //
+    // For the XRAnchor path, the world-origin group's matrix is driven
+    // each frame to the anchor's current pose in `refSpace` (i.e. the
+    // marker's world pose, tracked stably by the browser). The effective
+    // transform on the nav scene is nav.root.matrix * worldOrigin.matrix
+    // = marker's first-detected pose, which is world-stable.
+    //
+    // For the fallback path (no XRAnchor), the world-origin group's
+    // matrix is set ONCE at first marker detection to inverse(marker
+    // pose), and never updated per frame. Because `local-floor` is
+    // camera-anchored, the resulting origin is user-relative and the
+    // scene will drift as the user walks. The Recalibrate button can
+    // re-pin on demand.
+    //
+    // The world origin is created LAZILY on the first frame that
+    // contains a tracked marker, because XRAnchor requires an XRFrame
+    // to be created and we only have one inside the animation-loop
+    // callback. Before the first marker is seen, worldOrigin is null.
     const nav = createNavScene();
     scene.add(nav.root);
-
-    // World origin: using the Group fallback path. The XRAnchor path
-    // (createAnchorWorldOrigin in src/anchors/worldOrigin.ts) is defined and
-    // feature-detected, but requires the device to expose frame.createAnchor
-    // with the image-tracking module. This v1 implementation always uses the
-    // fallback; the XRAnchor path is reserved for v2.
-    const worldOrigin: WorldOrigin = createFallbackWorldOrigin(scene);
     nav.root.position.set(0, 0, 0);
 
     const webxr = new WebXRSession();
@@ -172,20 +187,39 @@ export async function bootstrap() {
     let lastHit: THREE.Matrix4 | null = null;
     let hitTestReady = false;
 
+    let worldOrigin: WorldOrigin | null = null;
     let originReady = false;
     let lastResult: ReturnType<typeof getImageTrackingResults>[number] | null = null;
+    // Re-anchoring queue: when the user taps Recalibrate on the anchor
+    // path, we mark `recalibrateRequested`; the next frame destroys the
+    // old anchor and creates a new one from that frame's marker pose.
+    // The old anchor's deletion must be scheduled, not immediate, because
+    // XRAnchor.delete() may only be called outside the frame callback
+    // that produced its pose.
+    let recalibrateRequested = false;
 
-    // Recalibrate handler: re-pin the world origin to the current
-    // WebXR marker view (or the marker-as-origin fallback if no
-    // image-tracking result is in frame).
+    // Recalibrate handler:
+    //   - fallback: re-pin the matrix immediately from the current
+    //     marker view (or the last seen one).
+    //   - anchor: queue a re-anchor for the next frame, since we need
+    //     a live XRFrame to call createAnchor.
     recalBtn.style.display = 'block';
     recalBtn.onclick = () => {
-      applyOriginFromPose(worldOrigin, mindarMarkerPose, lastResult?.transform ?? null);
-      ui.textContent = mindarMarkerPose
-        ? 'Recalibrated (handshake) to current marker view.'
-        : lastResult
-          ? 'Recalibrated (marker-as-origin) to current marker view.'
-          : 'Cannot recalibrate — no marker in view.';
+      if (!worldOrigin) {
+        ui.textContent = 'Cannot recalibrate — no marker has been seen yet.';
+        return;
+      }
+      if (worldOrigin.kind === 'fallback') {
+        applyOriginFromPose(worldOrigin, mindarMarkerPose, lastResult?.transform ?? null);
+        ui.textContent = mindarMarkerPose
+          ? 'Recalibrated (handshake) to current marker view.'
+          : lastResult
+            ? 'Recalibrated (marker-as-origin) to current marker view.'
+            : 'Cannot recalibrate — no marker in view.';
+      } else {
+        recalibrateRequested = true;
+        ui.textContent = 'Recalibrating to the next marker view…';
+      }
     };
 
     // Place-on-surface handler: spawn a placed marker at the most
@@ -239,7 +273,7 @@ export async function bootstrap() {
       ui.textContent = `AR active. Hit-test init failed: ${(err as Error).message}`;
     }
 
-    renderer.setAnimationLoop((_timestamp, frame) => {
+    renderer.setAnimationLoop(async (_timestamp, frame) => {
       if (!frame) return;
       const refSpace = webxr.referenceSpace;
       if (!refSpace) return;
@@ -247,20 +281,77 @@ export async function bootstrap() {
       const results = getImageTrackingResults(frame, refSpace);
       lastResult = results.find((r) => r.index === TARGET_INDEX) ?? null;
 
+      // --- Establish or re-establish the world origin -----------------
       if (!originReady && lastResult) {
-        // Pin the world origin to the marker's first-detected view and
-        // never update it per frame: the `local-floor` reference space
-        // moves with the camera, so re-inverting a fresh marker pose
-        // each frame would drag the scene with the user. Leaving the
-        // matrix alone is what emulates an XRAnchor's stability. The
-        // Recalibrate button can re-pin on demand.
-        applyOriginFromPose(worldOrigin, mindarMarkerPose, lastResult.transform);
+        // First-detection path: try XRAnchor first, fall back to Group
+        // if the device doesn't expose frame.createAnchor or it throws.
+        worldOrigin = await tryCreateWorldOrigin(
+          lastResult,
+          frame,
+          refSpace,
+          scene,
+          mindarMarkerPose,
+        );
+        if (worldOrigin.kind === 'fallback') {
+          // Fallback: pin the matrix once and never update. This is the
+          // explicit v1 limitation — the matrix is user-relative.
+          applyOriginFromPose(worldOrigin, mindarMarkerPose, lastResult.transform);
+        }
+        // For the anchor kind, the matrix is driven per-frame below
+        // from frame.getPose(anchor.anchorSpace, refSpace).
         if (!hitTestReady) {
-          ui.textContent = mindarMarkerPose
-            ? 'AR active. Walk to follow the path.'
-            : 'AR active (no handshake — using marker as origin).';
+          ui.textContent =
+            worldOrigin.kind === 'anchor'
+              ? mindarMarkerPose
+                ? 'AR active. Walk to follow the path.'
+                : 'AR active (no handshake — XRAnchor tracking the marker).'
+              : mindarMarkerPose
+                ? 'AR active. Walk to follow the path.'
+                : 'AR active (no handshake — using marker as origin).';
+        }
+        if (worldOrigin.kind === 'fallback') {
+          // Surface the limitation honestly: the scene will follow the
+          // user because we couldn't create a real anchor.
+          ui.textContent += ' (using Group fallback — scene may follow you as you walk)';
         }
         originReady = true;
+      } else if (recalibrateRequested && lastResult) {
+        // Re-anchor path: only meaningful on the anchor kind. For the
+        // fallback kind the recalibrate handler already re-pinned the
+        // matrix synchronously.
+        if (worldOrigin && worldOrigin.kind === 'anchor') {
+          try {
+            // The old anchor can be deleted at any time (not inside the
+            // frame that produced it). The new anchor must be created
+            // inside the frame callback, which we are in.
+            worldOrigin.xrAnchor.delete();
+          } catch {
+            // ignore: anchor may already be released
+          }
+          worldOrigin = await tryCreateWorldOrigin(
+            lastResult,
+            frame,
+            refSpace,
+            scene,
+            mindarMarkerPose,
+          );
+          ui.textContent =
+            worldOrigin.kind === 'anchor'
+              ? 'Recalibrated to new XRAnchor.'
+              : 'Recalibrate fell back to Group — scene may follow you as you walk.';
+        }
+        recalibrateRequested = false;
+      }
+
+      // --- Drive the anchor pose into the world-origin group ----------
+      // The anchor's pose in refSpace is the marker's world pose as
+      // tracked by the browser. Copy it into the group's matrix every
+      // frame; this is what makes the world origin world-stable.
+      if (worldOrigin && worldOrigin.kind === 'anchor') {
+        const anchorPose = frame.getPose(worldOrigin.xrAnchor.anchorSpace, refSpace);
+        if (anchorPose) {
+          worldOrigin.group.matrix.fromArray(anchorPose.transform.matrix);
+        }
       }
 
       // Poll hit-test for the most recent surface hit. We update lastHit
@@ -277,17 +368,56 @@ export async function bootstrap() {
 }
 
 /**
- * Pin the world origin to the current WebXR marker view. When a MindAR pose
- * is available the (currently v1) handshake transform is used; otherwise we
- * fall back to using the marker as the origin directly.
+ * Create the world origin. Tries the XRAnchor path first (the only path
+ * that produces a world-stable origin in `local-floor`); falls back to
+ * a plain THREE.Group if `frame.createAnchor` is missing or throws.
+ *
+ * The XRAnchor must be created inside an XR frame callback; this
+ * function is only called from `renderer.setAnimationLoop` where a
+ * frame is available.
+ *
+ * The `mindarMarkerPose` is plumbed through for the handshake path on
+ * the fallback kind only — the anchor kind has no handshake concept
+ * (the browser handles the alignment internally via VIO).
+ */
+async function tryCreateWorldOrigin(
+  result: ReturnType<typeof getImageTrackingResults>[number],
+  frame: XRFrame,
+  refSpace: XRReferenceSpace,
+  scene: THREE.Scene,
+  _mindarMarkerPose: THREE.Matrix4 | null,
+): Promise<WorldOrigin> {
+  if (typeof frame.createAnchor === 'function') {
+    try {
+      return await createAnchorWorldOrigin(result, frame, refSpace, scene);
+    } catch (err) {
+      console.warn(
+        'createAnchorWorldOrigin failed; falling back to Group:',
+        (err as Error).message,
+      );
+    }
+  }
+  return createFallbackWorldOrigin(scene);
+}
+
+/**
+ * Pin the fallback world origin to the current WebXR marker view. When a
+ * MindAR pose is available the (currently v1) handshake transform is used;
+ * otherwise we fall back to using the marker as the origin directly.
  *
  * If no transform is supplied (no marker in view), the call is a no-op.
+ *
+ * Note: this is only meaningful for the `fallback` kind of world origin.
+ * For the `anchor` kind, the bootstrap drives the group matrix from
+ * `frame.getPose(xrAnchor.anchorSpace, refSpace)` every frame — this
+ * function is not called on that path.
  */
 function applyOriginFromPose(
   origin: WorldOrigin,
   mindarMarkerPose: THREE.Matrix4 | null,
   webxrMarkerPose: THREE.Matrix4 | null,
 ): void {
+  if (origin.kind !== 'fallback') return;
   if (!webxrMarkerPose) return;
   if (mindarMarkerPose) {
     const handshake = computeHandshakeOrigin({

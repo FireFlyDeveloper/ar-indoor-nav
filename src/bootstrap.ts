@@ -1,11 +1,7 @@
 import { MindarSession } from './mindar/mindarSession';
 import { WebXRSession } from './webxr/webxrSession';
 import { createXRRenderer, getImageTrackingResults } from './webxr/renderer';
-import {
-  createFallbackWorldOrigin,
-  updateFallbackOrigin,
-  type WorldOrigin,
-} from './anchors/worldOrigin';
+import { createFallbackWorldOrigin, type WorldOrigin } from './anchors/worldOrigin';
 import { computeHandshakeOrigin } from './calibration/handshake';
 import { HitTestSession } from './hit-test/hitTestSession';
 import { createNavScene } from './scene/scene';
@@ -252,6 +248,12 @@ export async function bootstrap() {
       lastResult = results.find((r) => r.index === TARGET_INDEX) ?? null;
 
       if (!originReady && lastResult) {
+        // Pin the world origin to the marker's first-detected view and
+        // never update it per frame: the `local-floor` reference space
+        // moves with the camera, so re-inverting a fresh marker pose
+        // each frame would drag the scene with the user. Leaving the
+        // matrix alone is what emulates an XRAnchor's stability. The
+        // Recalibrate button can re-pin on demand.
         applyOriginFromPose(worldOrigin, mindarMarkerPose, lastResult.transform);
         if (!hitTestReady) {
           ui.textContent = mindarMarkerPose
@@ -259,8 +261,6 @@ export async function bootstrap() {
             : 'AR active (no handshake — using marker as origin).';
         }
         originReady = true;
-      } else if (originReady) {
-        updateFallbackOrigin(worldOrigin, lastResult);
       }
 
       // Poll hit-test for the most recent surface hit. We update lastHit

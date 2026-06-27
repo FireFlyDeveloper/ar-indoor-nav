@@ -52,32 +52,16 @@ export async function createAnchorWorldOrigin(
 
 /**
  * Create a placeholder world origin as a plain THREE.Group. The group's
- * matrix must be driven each frame (see `updateFallbackOrigin`) from the
- * latest image-tracking transform. Use this when the device does not
- * support anchors.
+ * matrix is set ONCE at first marker detection (see `bootstrap.ts`'s
+ * `applyOriginFromPose`) and not updated per frame, so the scene stays
+ * anchored to the room at the marker's first-detected position even
+ * though the `local-floor` reference space moves with the camera. Use
+ * this when the device does not support XRAnchor; the Recalibrate button
+ * explicitly re-pins the matrix on demand.
  */
 export function createFallbackWorldOrigin(scene: THREE.Scene): WorldOrigin {
   const group = new THREE.Group();
   group.name = 'worldOrigin';
   scene.add(group);
   return { kind: 'fallback', group };
-}
-
-/**
- * For a fallback origin (no XRAnchor), copy the inverse of the latest
- * image-tracking transform into the group's local matrix each frame. The
- * group therefore represents a frame whose origin sits at the marker, so
- * authoring in the marker's local frame matches what the user sees. No-op
- * for anchor origins (the XRAnchor system drives the pose) or when no
- * tracking result is available this frame.
- */
-export function updateFallbackOrigin(
-  origin: WorldOrigin,
-  result: ImageTrackingResult | null,
-): void {
-  if (origin.kind !== 'fallback' || result === null) return;
-
-  origin.group.matrix.copy(result.transform).invert();
-  origin.group.matrixAutoUpdate = false;
-  origin.group.updateMatrixWorld(true);
 }
